@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WearCost</title>
+<style>
+  :root { --bg:#f6f4f6; --card:#fff; --ink:#29252e; --muted:#857e8d; --purple:#6a4c93; --green:#3d8a4f; --amber:#c98a1e; --red:#c0453e; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:ui-sans-serif,system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:20px 24px 8px; }
+  h1 { margin:0; font-size:1.5rem; }
+  .sub { color:var(--muted); margin:4px 0 0; font-size:.9rem; }
+  main { max-width:720px; margin:0 auto; padding:12px 16px 40px; }
+  form { background:var(--card); border-radius:12px; padding:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin-bottom:14px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  label { font-size:.75rem; color:var(--muted); display:block; margin-bottom:3px; }
+  input, button { font:inherit; padding:8px 10px; border:1px solid #dcd6e0; border-radius:8px; background:#fff; }
+  input[type=text] { flex:1; min-width:150px; }
+  input[type=number] { width:110px; }
+  button { background:var(--purple); color:#fff; border:none; cursor:pointer; }
+  button.ghost { background:#eee9f2; color:var(--ink); }
+  .stat { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .s { background:var(--card); border-radius:10px; padding:10px 16px; box-shadow:0 1px 4px rgba(0,0,0,.05); }
+  .s b { font-size:1.2rem; display:block; }
+  .s span { font-size:.75rem; color:var(--muted); }
+  .card { background:var(--card); border-radius:12px; padding:12px 16px; margin-bottom:10px; box-shadow:0 1px 4px rgba(0,0,0,.06); display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .name { font-weight:600; }
+  .cpw { font-size:1.15rem; font-weight:800; }
+  .badge { font-size:.72rem; font-weight:700; padding:3px 9px; border-radius:999px; }
+  .b-workhorse { background:#e0f0e2; color:#2e6b2e; }
+  .b-earning { background:#e4ecf7; color:#2e5a9a; }
+  .b-pricey { background:#fbf0da; color:#9a6b12; }
+  .b-closet { background:#fae2e1; color:#b23834; }
+  .b-unworn { background:#ece8f0; color:#6a5a7a; }
+  .meta { font-size:.82rem; color:var(--muted); margin-top:2px; }
+  .actions { display:flex; gap:6px; align-items:center; }
+  .actions button { padding:6px 12px; font-size:.85rem; }
+  .empty { text-align:center; color:var(--muted); padding:40px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>WearCost</h1>
+  <p class="sub">What does each thing in your closet actually cost per wear? The price tag lies; the math doesn't.</p>
+</header>
+<main>
+  <form id="add-form">
+    <div style="flex:1;min-width:150px"><label>Item</label><input type="text" id="f-name" placeholder="Wool jacket" required maxlength="50"></div>
+    <div><label>Price</label><input type="number" id="f-price" min="0.01" step="0.01" placeholder="200" required></div>
+    <button type="submit">Add item</button>
+  </form>
+  <div class="stat" id="stat"></div>
+  <div id="list"></div>
+</main>
+<script src="engine.js"></script>
+<script>
+(function () {
+  var KEY = 'wearcost-v1';
+  function today() { return new Date().toISOString().slice(0, 10); }
+  function load() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } }
+  function save() { localStorage.setItem(KEY, JSON.stringify(items)); }
+  var items = load();
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  var BCLASS = { 'workhorse': 'b-workhorse', 'earning it': 'b-earning', 'pricey': 'b-pricey', 'closet weight': 'b-closet', 'unworn': 'b-unworn' };
+
+  function render() {
+    var st = WearCost.wardrobeStats(items);
+    var stat = document.getElementById('stat');
+    stat.innerHTML = '';
+    [['Items', st.items], ['Total spent', st.totalSpent], ['Unworn', st.unwornCount], ['Workhorses', st.workhorses]].forEach(function (c) {
+      var d = el('div', 's');
+      d.appendChild(el('b', null, String(c[1])));
+      d.appendChild(el('span', null, c[0]));
+      stat.appendChild(d);
+    });
+    var wrap = document.getElementById('list');
+    wrap.innerHTML = '';
+    if (!items.length) {
+      wrap.innerHTML = '<div class="empty">Closet is empty. Add what you actually own - then tap "Wore it today" honestly.</div>';
+      return;
+    }
+    WearCost.rankItems(items).forEach(function (r) {
+      var it = r.item;
+      var card = el('div', 'card');
+      var left = el('div');
+      left.appendChild(el('span', 'name', it.name));
+      left.appendChild(el('span', 'meta', ' paid ' + it.price + ' - ' + it.wears.length + ' wear' + (it.wears.length === 1 ? '' : 's')));
+      card.appendChild(left);
+      var right = el('div', 'actions');
+      var cpw = el('span', 'cpw', r.cpw === null ? String(it.price) : String(r.cpw));
+      right.appendChild(cpw);
+      right.appendChild(el('span', 'meta', r.cpw === null ? 'at stake' : '/wear'));
+      right.appendChild(el('span', 'badge ' + BCLASS[r.verdict], r.verdict));
+      var wore = el('button', 'ghost', it.wears.indexOf(today()) >= 0 ? 'Worn today' : 'Wore it today');
+      wore.disabled = it.wears.indexOf(today()) >= 0;
+      wore.onclick = function () {
+        try { WearCost.logWear(it, today()); }
+        catch (e) { alert(e.message); return; }
+        save(); render();
+      };
+      right.appendChild(wore);
+      var del = el('button', 'ghost', 'x');
+      del.title = 'Remove item';
+      del.onclick = function () {
+        if (!confirm('Remove "' + it.name + '"?')) return;
+        WearCost.removeItem(items, it.id); save(); render();
+      };
+      right.appendChild(del);
+      card.appendChild(right);
+      wrap.appendChild(card);
+    });
+  }
+
+  document.getElementById('add-form').onsubmit = function (e) {
+    e.preventDefault();
+    try {
+      WearCost.addItem(items,
+        document.getElementById('f-name').value,
+        document.getElementById('f-price').value);
+    } catch (err) { alert(err.message); return; }
+    document.getElementById('f-name').value = '';
+    document.getElementById('f-price').value = '';
+    save(); render();
+  };
+  render();
+})();
+</script>
+</body>
+</html>
